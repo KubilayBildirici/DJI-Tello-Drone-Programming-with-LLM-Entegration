@@ -242,7 +242,7 @@ class DroneUI(QWidget):
         from PySide6.QtGui import QMovie
         from PySide6.QtCore import QSize
 
-        self.movie = QMovie("C:\\Users\\kubilay\\Desktop\\Tello_Drone\\2.gif")
+        self.movie = QMovie("C:\\Users\\kubilay\\Desktop\\Tello_Drone\\assets\\2.gif")
         self.movie.setScaledSize(QSize(620, 360))
 
         self.gif_label.setMovie(self.movie)
