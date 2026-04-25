@@ -1,17 +1,14 @@
 from openai import OpenAI
 from dotenv import load_dotenv
+from config import Config
 import base64
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import cv2
 
 load_dotenv(override=True)
 
-openai = OpenAI()
-#executor = ThreadPoolExecutor(max_workers=2)
+_client = OpenAI(timeout=Config.OPENAI_TIMEOUT)
 
-PROMPT = """
-You are a strict vision system.
+PROMPT = """You are a strict vision system.
 
 TASK:
 Find if the object in Image A exists in Image B.
@@ -21,39 +18,43 @@ RULES:
   HEDEF BULUNDU
   HEDEF BULUNAMADI
 - No explanation
-- No extra text
-"""
+- No extra text"""
 
-def encode_frame(frame):
+
+def encode_frame(frame) -> str:
+    """OpenCV BGR frame'i base64 JPEG string'e çevirir."""
     _, buffer = cv2.imencode(".jpg", frame)
-    return base64.b64encode(buffer).decode("UTF-8")
+    return base64.b64encode(buffer).decode("utf-8")
 
-    
-    
-def analyze_frame(target_b64, frame_b64):
-    
-    response = openai.responses.create(
-        model = "gpt-4o-mini",
-        input=[
+
+def analyze_frame(target_b64: str, frame_b64: str) -> str:
+    """
+    İki görüntüyü karşılaştırır ve hedefin bulunup bulunmadığını döner.
+
+    Returns:
+        "HEDEF BULUNDU" veya "HEDEF BULUNAMADI"
+    """
+    response = _client.chat.completions.create(
+        model=Config.LLM_MODEL,
+        max_tokens=Config.LLM_MAX_TOKENS,
+        messages=[
             {
-                "role":"user",
+                "role": "user",
                 "content": [
-                    {"type": "input_text", "text": PROMPT},
-                    {"type": "input_text", "text": "Image A:"},
+                    {"type": "text", "text": PROMPT},
+                    {"type": "text", "text": "Image A (target):"},
                     {
-                        "type": "input_image",
-                        "image_url": f"data:image/jpeg;base64,{target_b64}",
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{target_b64}"},
                     },
-                    
-                    {"type": "input_text", "text": "Image B:"},
+                    {"type": "text", "text": "Image B (current frame):"},
                     {
-                        "type": "input_image",
-                        "image_url": f"data:image/jpeg;base64,{frame_b64}"
-                    }
-                ]
-                    
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{frame_b64}"},
+                    },
+                ],
             }
         ],
-        max_output_tokens=50
     )
-    return response.output_text.strip()
+    return response.choices[0].message.content.strip()
+

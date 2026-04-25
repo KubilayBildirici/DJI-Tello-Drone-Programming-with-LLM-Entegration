@@ -20,3 +20,13 @@ Thumbs.db
 
 # Logs
 *.log
+drone.log.*
+
+# Generated output
+recordings/
+screenshots/
+
+# Build / dist
+*.egg-info/
+dist/
+build/

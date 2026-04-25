@@ -1,75 +1,83 @@
 import pygame
+from config import Config
+from loggingSystem import Logger
+
 
 class GamepadController:
-    def __init__(self, drone):
+    """
+    PlayStation/Xbox gamepad → Tello RC komut eşleştirmesi.
+
+    Eksen / Buton Eşleştirmesi (PS4 DualShock düzenine göre):
+        Axis 0  — Sol stick X    : sol/sağ (lr)
+        Axis 1  — Sol stick Y    : ileri/geri (fb)
+        Axis 4  — L2             : aşağı iniş (ud–)
+        Axis 5  — R2             : yukarı çıkış (ud+)
+        Button 0 — X             : kalkış (takeoff)
+        Button 1 — O             : iniş (land)
+        Button 9 — L1            : sola dönüş (yaw–)
+        Button 10 — R1           : sağa dönüş (yaw+)
+    """
+
+    YAW_SPEED = 50  # yaw dönüş hızı (sabit)
+
+    def __init__(self, drone) -> None:
         self.drone = drone
+        self.logger = Logger("GAMEPAD", Logger.BLUE)
+
         pygame.init()
         pygame.joystick.init()
-        
+
         if pygame.joystick.get_count() == 0:
-            raise Exception("Gamepad not found")
+            raise RuntimeError("Gamepad not found. Please connect a controller.")
 
         self.joystick = pygame.joystick.Joystick(0)
         self.joystick.init()
-        
-        print(f"Gamepad e baglandi:{self.joystick.get_name()}")
-        
-        self.FLYING = False
-    
-    def deadzone(self, value, threshold = 0.1):
-        return 0 if abs(value) < threshold else value
-    
-    
-    def update(self):
+        self.logger.log(f"Connected: {self.joystick.get_name()}")
+
+        self._flying = False
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _deadzone(self, value: float) -> float:
+        return 0.0 if abs(value) < Config.GAMEPAD_DEADZONE else value
+
+    # ── Main update ───────────────────────────────────────────────────────────
+
+    def update(self) -> None:
+        """Gamepad durumunu oku ve drone'a RC komutu gönder. Her ~100ms çağrılır."""
         pygame.event.pump()
-        
-        #print("Axis count:", self.joystick.get_numaxes())
-        
-        lr = self.deadzone(self.joystick.get_axis(0))
-        fb = self.deadzone(self.joystick.get_axis(1))
-        
-        ud = 0        
+
+        # ── Yatay hareket ────────────────────────────────────────────────────
+        lr = int(self._deadzone(self.joystick.get_axis(0)) * Config.DRONE_SPEED)
+        fb = int(-self._deadzone(self.joystick.get_axis(1)) * Config.DRONE_SPEED)
+
+        # ── Yaw (L1/R1) ──────────────────────────────────────────────────────
         yaw = 0
-        
-        # yaw (L1/R1)
-        if self.joystick.get_button(9): # L1 -> oldugun yerde sola don
-            yaw = -50
-        if self.joystick.get_button(10): # R1 -> oldugun yerde saga don
-            yaw = 50
-        
-        # Yukseklik (L2/R2)
-        l2 = self.joystick.get_axis(4)
-        r2 = self.joystick.get_axis(5)
+        if self.joystick.get_button(9):   # L1
+            yaw = -self.YAW_SPEED
+        elif self.joystick.get_button(10): # R1
+            yaw = self.YAW_SPEED
 
-        l2 = (l2 + 1) / 2
-        r2 = (r2 + 1) / 2
-        
-        if r2 > 0.3:
-            ud = int(r2 * 70)
-        elif l2 > 0.3:
-            ud = -int(l2 * 70)
-        
-        
-        if abs(ud) < 10:
+        # ── Yükseklik (L2/R2 analog) ─────────────────────────────────────────
+        l2 = (self.joystick.get_axis(4) + 1) / 2  # [–1,1] → [0,1]
+        r2 = (self.joystick.get_axis(5) + 1) / 2
+
+        ud = 0
+        if r2 > Config.GAMEPAD_TRIGGER_THRESHOLD:
+            ud = int(r2 * Config.DRONE_SPEED)
+        elif l2 > Config.GAMEPAD_TRIGGER_THRESHOLD:
+            ud = -int(l2 * Config.DRONE_SPEED)
+
+        if abs(ud) < Config.GAMEPAD_UD_MIN:
             ud = 0
-        
-        # scale
-        lr = int(lr * 70)
-        fb = int(-fb * 70)
-        
-        self.drone.set_movement(lr, fb, ud, yaw)
-        
-        # X -> Takeoff
-        if self.joystick.get_button(0): # X -> TAKEOFF
-            if not self.FLYING:
-                self.drone.takeoff()
-                self.FLYING = True
-        
-        if self.joystick.get_button(1): # O -> LAND
-            if self.FLYING:
-                self.drone.land()
-                self.FLYING = False
-                    
-        
 
-    
+        self.drone.set_movement(lr, fb, ud, yaw)
+
+        # ── Takeoff / Land ───────────────────────────────────────────────────
+        if self.joystick.get_button(0) and not self._flying:  # X
+            self.drone.takeoff()
+            self._flying = True
+
+        if self.joystick.get_button(1) and self._flying:      # O
+            self.drone.land()
+            self._flying = False
